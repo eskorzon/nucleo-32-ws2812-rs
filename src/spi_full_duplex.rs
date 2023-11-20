@@ -26,7 +26,7 @@ impl<'d, T: Instance, Tx, Rx> FullDuplex<u8> for MySpi<'d, T, Tx, Rx> {
 
     fn read(&mut self) -> Result<u8, nb::Error<Error>> {
         let data: u8 = Default::default();
-        self.0.blocking_read(&mut [data]).unwrap();
+        self.0.blocking_read(&mut [data])?;
 
         Ok(data)
     }
