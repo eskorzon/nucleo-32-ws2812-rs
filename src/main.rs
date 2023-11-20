@@ -65,7 +65,7 @@ async fn pulse_light(spi: MySpi<'static, peripherals::SPI1, NoDma, NoDma>) {
                 };
                 data[i] = color;
             }
-            ws.write(data.iter().cloned()).unwrap();
+            unwrap!(ws.write(data.iter().cloned()));
             Timer::after(Duration::from_millis(DELAY_MS)).await;
         }
 
@@ -78,7 +78,7 @@ async fn pulse_light(spi: MySpi<'static, peripherals::SPI1, NoDma, NoDma>) {
                 };
                 data[i] = color;
             }
-            ws.write(data.iter().cloned()).unwrap();
+            unwrap!(ws.write(data.iter().cloned()));
             Timer::after(Duration::from_millis(DELAY_MS)).await;
         }
     }
@@ -104,6 +104,6 @@ async fn main(spawner: Spawner) {
         spi_peri, sck, mosi, miso, NoDma, NoDma, spi_config
     );
 
-    spawner.spawn(pulse_light(spi)).unwrap();
-    spawner.spawn(handle_button(led, butt, exti)).unwrap();
+    unwrap!(spawner.spawn(pulse_light(spi)));
+    unwrap!(spawner.spawn(handle_button(led, butt, exti)));
 }

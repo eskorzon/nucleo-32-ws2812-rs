@@ -21,3 +21,6 @@ ws2812-spi = "0.4.0"
 
 [profile.release]
 debug = 2
+
+[profile.dev]
+opt-level = 3

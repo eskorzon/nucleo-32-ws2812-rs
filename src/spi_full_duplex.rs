@@ -32,7 +32,12 @@ impl<'d, T: Instance, Tx, Rx> FullDuplex<u8> for MySpi<'d, T, Tx, Rx> {
     }
 
     fn send(&mut self, word: u8) -> Result<(), nb::Error<Error>> {
-        Ok(self.0.blocking_write(&[word])?)
+        self.0.blocking_write(&[word])?;
+
+        // Necessary?
+        // self.0.blocking_write(&[0u8; 0])?; // dummy write to reenable SPI
+        
+        Ok(())
     }
 }
 
