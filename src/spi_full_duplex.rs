@@ -21,6 +21,7 @@ impl<'d, T: Instance, Tx, Rx> MySpi<'d, T, Tx, Rx> {
     }
 }
 
+
 impl<'d, T: Instance, Tx, Rx> FullDuplex<u8> for MySpi<'d, T, Tx, Rx> {
     type Error = Error;
 
@@ -36,7 +37,7 @@ impl<'d, T: Instance, Tx, Rx> FullDuplex<u8> for MySpi<'d, T, Tx, Rx> {
 
         // Necessary?
         // self.0.blocking_write(&[0u8; 0])?; // dummy write to reenable SPI
-        
+
         Ok(())
     }
 }
