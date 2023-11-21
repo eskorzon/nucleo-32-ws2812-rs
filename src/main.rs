@@ -65,15 +65,10 @@ pub async fn handle_button(
             Level::Low => led.set_high()
         }
 
-        let val = if AMBIENT_LX.load(Ordering::Relaxed) < 9 {
-            "dark"
-        }
-        else {
-            "light"
-        };
-
         let mut msg = String::<64>::new();
-        write!(msg, "boop detected. light level: {}", val).unwrap();
+        write!(
+            msg, "boop detected. light level: {}", if AMBIENT_LX.load(Ordering::Relaxed) < 9 { "dark" } else { "light" }
+        ).unwrap();
         MAIN_CHANNEL.send(msg).await;
     }
 }
