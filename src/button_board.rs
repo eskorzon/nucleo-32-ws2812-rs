@@ -15,7 +15,7 @@ static EDGE_SIGNAL: Signal<ThreadModeRawMutex, bool> = Signal::<ThreadModeRawMut
 #[embassy_executor::task]
 pub(crate) async fn r1_listener(pin_no: usize, mut exti: ExtiInput<'static, peripherals::PB1>) {
     loop {
-        exti.wait_for_rising_edge().await;
+        exti.wait_for_any_edge().await;
         {
             let mut val = BUTTON_BOARD_VEC.lock().await;
             (*val)[pin_no] = true;
