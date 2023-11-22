@@ -3,7 +3,6 @@
 #![feature(type_alias_impl_trait)]
 
 use core::fmt::Write;
-use core::sync::atomic::{AtomicU16, Ordering};
 
 use defmt::{info, unwrap};
 use {defmt_rtt as _, panic_probe as _};
@@ -25,49 +24,106 @@ use embassy_stm32::spi::Config;
 use embassy_stm32::time::Hertz;
 
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_sync::channel::Channel;
 
 use embassy_time::{
     Delay,
     Duration,
-    Ticker
+    Ticker,
+    Timer
 };
 
-use heapless::String;
+use heapless::{
+    String,
+    Vec
+};
 
 use smart_leds::{SmartLedsWrite, RGB8};
 
 use ws2812_spi as ws2812;
 use crate::ws2812::Ws2812;
 
-mod ambient_light_sensor;
-use ambient_light_sensor::sense_ambient_light;
-mod spi_full_duplex;
+mod adc_reader;
+use adc_reader::adc_reader;
+
+mod button_board;
+use button_board::{
+    button_board,
+    r1_listener,
+    r2_listener,
+    r3_listener,
+    r4_listener
+};
+
+mod spi_full_duplex; 
 use spi_full_duplex::MySpi;
 
 
-pub(crate) static AMBIENT_LX: AtomicU16 = AtomicU16::new(0);
+pub(crate) static ADC_VEC: Mutex<ThreadModeRawMutex, Vec<u16, 8>> = Mutex::<
+    ThreadModeRawMutex,
+    Vec<u16, 8>
+>::new(Vec::<u16, 8>::new());
+
+pub(crate) static BUTTON_BOARD_VEC: Mutex<ThreadModeRawMutex, Vec<bool, 4>> = Mutex::<
+    ThreadModeRawMutex,
+    Vec<bool, 4>
+>::new(Vec::<bool, 4>::new());
+
+#[repr(usize)]
+pub(crate) enum AdcPins {
+    AmbientLx = 0,
+}
+
 pub(crate) static MAIN_CHANNEL: Channel<ThreadModeRawMutex, String<64>, 5> = Channel::new();
 
 
 #[embassy_executor::task]
-pub async fn handle_button(
-    mut led: Output<'static, peripherals::PB0>,
-    butt: Input<'static, peripherals::PB7>,
-    exti: peripherals::EXTI7
+pub async fn motor_button(
+    mut mtr: Output<'static, peripherals::PB6>,
+    mut button: ExtiInput<'static, peripherals::PB7>
 ) {
-    let mut button = ExtiInput::new(butt, exti);
-    
+    const HOLD_MS: u64 = 100;
+
     loop {
         button.wait_for_rising_edge().await;
-        match led.get_output_level() {
-            Level::High => led.set_low(),
-            Level::Low => led.set_high()
+        mtr.set_high();
+
+        Timer::after_millis(HOLD_MS).await;
+        mtr.set_low();
+
+        let ambient_lx: u16;
+        {
+            let adc_vec = ADC_VEC.lock().await;
+            ambient_lx = adc_vec[AdcPins::AmbientLx as usize];
         }
 
         let mut msg = String::<64>::new();
         write!(
-            msg, "boop detected. light level: {}", if AMBIENT_LX.load(Ordering::Relaxed) < 9 { "dark" } else { "light" }
+            msg, "boop detected. activating motor. light level: {}", ambient_lx
+        ).unwrap();
+        MAIN_CHANNEL.send(msg).await;
+    }
+}
+
+
+#[embassy_executor::task]
+pub async fn led_button(
+    mut led: Output<'static, peripherals::PB0>,
+    mut button: ExtiInput<'static, peripherals::PB7>
+) {
+    loop {
+        button.wait_for_rising_edge().await;
+        led.toggle();
+
+        let mut msg = String::<64>::new();
+        let ambient_lx: u16;
+        {
+            let adc_vec = ADC_VEC.lock().await;
+            ambient_lx = adc_vec[AdcPins::AmbientLx as usize];
+        }
+        write!(
+            msg, "boop detected. light level: {}", if ambient_lx < 9 { "dark" } else { "light" }
         ).unwrap();
         MAIN_CHANNEL.send(msg).await;
     }
@@ -119,9 +175,10 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
 
     // Configure LED and button
-    let led = Output::new(p.PB0, Level::High, Speed::Low);
-    let butt = Input::new(p.PB7, Pull::Down);
-    let exti = p.EXTI7;
+    // let led = Output::new(p.PB0, Level::High, Speed::Low);   Actual LED
+    let mtr = Output::new(p.PB6, Level::High, Speed::Low);      // Sp
+    let button = Input::new(p.PB7, Pull::Down);
+    let button = ExtiInput::new(button, p.EXTI7);
 
     // Configure SPI pins
     let spi_peri = p.SPI1;
@@ -144,11 +201,37 @@ async fn main(spawner: Spawner) {
     let mut adc = Adc::new(p.ADC1, &mut Delay);
     adc.set_resolution(Resolution::EightBit);
 
-    let sensor_pin = p.PA0;
+    let a0 = p.PA0;
+    let a1 = p.PA1;
+    let a2 = p.PA3;
+    let a3 = p.PA4;
+    let a4 = p.PA5;
+    let a5 = p.PA6;
+    let a6 = p.PA7;
+    let a7 = p.PA2;
+
+    let r1 = ExtiInput::new(Input::new(p.PB1, Pull::Down), p.EXTI1);
+    let r2 = ExtiInput::new(Input::new(p.PC14, Pull::Down), p.EXTI14);
+    let r3 = ExtiInput::new(Input::new(p.PC15, Pull::Down), p.EXTI15);
+    let r4 = ExtiInput::new(Input::new(p.PA8, Pull::Down), p.EXTI8);
+
+    {
+        let mut val = BUTTON_BOARD_VEC.lock().await;
+        (*val).extend_from_slice(&[false, false, false, false]).unwrap();
+    }
+
 
     unwrap!(spawner.spawn(pulse_light(spi)));
-    unwrap!(spawner.spawn(handle_button(led, butt, exti)));
-    unwrap!(spawner.spawn(sense_ambient_light(adc, sensor_pin)));
+    // unwrap!(spawner.spawn(led_button(led, butt, exti)));
+    unwrap!(spawner.spawn(motor_button(mtr, button)));
+    unwrap!(spawner.spawn(adc_reader(
+        adc, a0, a1, a2, a3, a4, a5, a6, a7
+    )));
+    unwrap!(spawner.spawn(r1_listener(0, r1)));
+    unwrap!(spawner.spawn(r2_listener(1, r2)));
+    unwrap!(spawner.spawn(r3_listener(2, r3)));
+    unwrap!(spawner.spawn(r4_listener(3, r4)));
+    unwrap!(spawner.spawn(button_board()));
 
     loop {
         let val = MAIN_CHANNEL.receive().await;
