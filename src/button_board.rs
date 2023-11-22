@@ -1,6 +1,7 @@
 use core::fmt::Write;
 use embassy_stm32::exti::ExtiInput;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_stm32::peripherals;
 use embassy_sync::signal::Signal;
 use heapless::String;
@@ -9,7 +10,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 use crate::{BUTTON_BOARD_VEC, MAIN_CHANNEL};
 
-static EDGE_SIGNAL: Signal<ThreadModeRawMutex, bool> = Signal::<ThreadModeRawMutex, bool>::new();
+static EDGE_SIGNAL: Channel<ThreadModeRawMutex, bool, 4> = Channel::<ThreadModeRawMutex, bool, 4>::new();
 
 // D6..D9 = R1..R4
 #[embassy_executor::task]
@@ -18,9 +19,9 @@ pub(crate) async fn r1_listener(pin_no: usize, mut exti: ExtiInput<'static, peri
         exti.wait_for_any_edge().await;
         {
             let mut val = BUTTON_BOARD_VEC.lock().await;
-            (*val)[pin_no] = true;
+            (*val)[pin_no] = exti.is_high();
         }
-        EDGE_SIGNAL.signal(true);
+        EDGE_SIGNAL.send(true).await;
     }
 }
 
@@ -33,7 +34,7 @@ pub(crate) async fn r2_listener(pin_no: usize, mut exti: ExtiInput<'static, peri
             let mut val = BUTTON_BOARD_VEC.lock().await;
             (*val)[pin_no] = exti.is_high();
         }
-        EDGE_SIGNAL.signal(true);
+        EDGE_SIGNAL.send(true).await;
     }
 }
 
@@ -46,7 +47,7 @@ pub(crate) async fn r3_listener(pin_no: usize, mut exti: ExtiInput<'static, peri
             let mut val = BUTTON_BOARD_VEC.lock().await;
             (*val)[pin_no] = exti.is_high();
         }
-        EDGE_SIGNAL.signal(true);
+        EDGE_SIGNAL.send(true).await;
     }
 }
 
@@ -59,7 +60,7 @@ pub(crate) async fn r4_listener(pin_no: usize, mut exti: ExtiInput<'static, peri
             let mut val = BUTTON_BOARD_VEC.lock().await;
             (*val)[pin_no] = exti.is_high();
         }
-        EDGE_SIGNAL.signal(true);
+        EDGE_SIGNAL.send(true).await;
     }
 }
 
@@ -67,7 +68,7 @@ pub(crate) async fn r4_listener(pin_no: usize, mut exti: ExtiInput<'static, peri
 #[embassy_executor::task]
 pub(crate) async fn button_board() {
     loop {
-        let _ = EDGE_SIGNAL.wait().await;
+        let _ = EDGE_SIGNAL.receive().await;
         // Check the value of all the EXTI pins
         let r1: bool;
         let r2: bool;
