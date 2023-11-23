@@ -17,6 +17,7 @@ embedded-hal = "0.2.7"
 heapless = "0.8.0"
 nb = "1.1.0"
 panic-probe = { version = "0.3.1", features = ["print-defmt"] }
+paste = "1.0.14"
 smart-leds = "0.3.0"
 ws2812-spi = "0.4.0"
 

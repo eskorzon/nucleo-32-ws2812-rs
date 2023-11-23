@@ -69,7 +69,9 @@ pub(crate) enum AdcPins {
     AmbientLx = 0,
 }
 
-pub(crate) static MAIN_CHANNEL: Channel<ThreadModeRawMutex, String<64>, 8> = Channel::new();
+pub(crate) const MSG_SIZE: usize = 84;
+pub(crate) static MAIN_CHANNEL: Channel<ThreadModeRawMutex, String<MSG_SIZE>, 8> = Channel::new();
+
 pub(crate) static BTN_CH: Channel<ThreadModeRawMutex, Vec::<u8, 2>, 8> = Channel::new();
 
 
@@ -93,7 +95,7 @@ pub async fn motor_button(
             ambient_lx = adc_vec[AdcPins::AmbientLx as usize];
         }
 
-        let mut msg = String::<64>::new();
+        let mut msg = String::<MSG_SIZE>::new();
         write!(
             msg, "boop detected. activating motor. light level: {}", ambient_lx
         ).unwrap();
@@ -111,7 +113,7 @@ pub async fn led_button(
         button.wait_for_rising_edge().await;
         led.toggle();
 
-        let mut msg = String::<64>::new();
+        let mut msg = String::<MSG_SIZE>::new();
         let ambient_lx: u16;
         {
             let adc_vec = ADC_VEC.lock().await;
@@ -166,21 +168,6 @@ async fn pulse_light(spi: MySpi<'static, peripherals::SPI1, NoDma, NoDma>) {
 }
 
 
-macro_rules! monitor_exti {
-    ($name:ident, $exti:ty) => {
-        #[embassy_executor::task]
-        pub(crate) async fn $name(pin_no: u8, mut exti: $exti) {
-            loop {
-                exti.wait_for_any_edge().await;
-                let mut val = Vec::<u8, 2>::new();
-                val.extend_from_slice(&[pin_no, exti.is_high() as u8]).unwrap();
-                BTN_CH.send(val).await;
-            }
-        }
-    }
-}
- 
-
  #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
@@ -221,22 +208,36 @@ async fn main(spawner: Spawner) {
     let a6 = p.PA7;
     let a7 = p.PA2;
 
+    macro_rules! monitor_extis {
+        ($($name:ident, $pin_no:expr, $exti:ty, $pin_peri:ident, $exti_peri:ident),*) => {
+            $(
+                #[embassy_executor::task]
+                async fn $name(pin_no: u8, mut exti: $exti) {
+                    loop {
+                        exti.wait_for_any_edge().await;
+                        let mut val = Vec::<u8, 2>::new();
+                        val.extend_from_slice(&[pin_no, exti.is_high() as u8]).unwrap();
+                        BTN_CH.send(val).await;
+                    }
+                }
+                unwrap!(spawner.spawn($name($pin_no, ExtiInput::new(Input::new(p.$pin_peri, Pull::Down), p.$exti_peri))));
+            )*
+        }
+    }
+
     {
         let mut val = BUTTON_BOARD_VEC.lock().await;
         val.extend_from_slice(
             &[false, false, false, false]
         ).unwrap();
     }
-
-    monitor_exti!(exti1, ExtiInput<'static, peripherals::PB1>);
-    monitor_exti!(exti9, ExtiInput<'static, peripherals::PA9>);
-    monitor_exti!(exti10, ExtiInput<'static, peripherals::PA10>);
-    monitor_exti!(exti8, ExtiInput<'static, peripherals::PA8>);
-
-    unwrap!(spawner.spawn(exti1(0, ExtiInput::new(Input::new(p.PB1, Pull::Down), p.EXTI1))));
-    unwrap!(spawner.spawn(exti9(1, ExtiInput::new(Input::new(p.PA9, Pull::Down), p.EXTI9))));
-    unwrap!(spawner.spawn(exti10(2, ExtiInput::new(Input::new(p.PA10, Pull::Down), p.EXTI10))));
-    unwrap!(spawner.spawn(exti8(3, ExtiInput::new(Input::new(p.PA8, Pull::Down), p.EXTI8))));
+    
+    monitor_extis!(
+        exti1, 0, ExtiInput<'static, peripherals::PB1>, PB1, EXTI1,
+        exti9, 1, ExtiInput<'static, peripherals::PA9>, PA9, EXTI9,
+        exti10, 2, ExtiInput<'static, peripherals::PA10>, PA10, EXTI10,
+        exti8, 3, ExtiInput<'static, peripherals::PA8>, PA8, EXTI8
+    );
 
     unwrap!(spawner.spawn(pulse_light(spi)));
     unwrap!(spawner.spawn(motor_button(mtr, button)));
@@ -244,7 +245,7 @@ async fn main(spawner: Spawner) {
         adc, a0, a1, a2, a3, a4, a5, a6, a7
     )));
     unwrap!(spawner.spawn(button_board()));
-
+ 
     loop {
         let val = MAIN_CHANNEL.receive().await;
         info!("{}", val.as_str());

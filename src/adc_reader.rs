@@ -1,4 +1,6 @@
 // use core::fmt::Write;
+use {defmt_rtt as _, panic_probe as _};
+
 use embassy_stm32::adc::Adc;
 use embassy_stm32::peripherals;
 
@@ -9,10 +11,11 @@ use embassy_time::{
 use heapless::Vec;
 // use heapless::String;
 
-use {defmt_rtt as _, panic_probe as _};
-
-use crate::ADC_VEC;
-// use crate::MAIN_CHANNEL;
+use crate::{
+    ADC_VEC,
+    // MAIN_CHANNEL,
+    // MSG_SIZE
+};
 
 
 #[embassy_executor::task]
@@ -51,9 +54,10 @@ pub(crate) async fn adc_reader(
             // *adc_vec = vals.clone();
             *adc_vec = vals;
         }
-        // let mut msg = String::<64>::new();
+        // let mut msg = String::<MSG_SIZE>::new();
         // write!(
-        //     msg, "A0: {}\tA1: {}\tA2: {}\tA3: {}\tA4: {}\tA5: {}\tA6: {}\tA7: {}", vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6], vals[7]
+        //     msg, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        //     vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6], vals[7]
         // ).unwrap();
         // MAIN_CHANNEL.send(msg).await;
     }
