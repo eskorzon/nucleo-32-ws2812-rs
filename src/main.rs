@@ -168,9 +168,30 @@ async fn pulse_light(spi: MySpi<'static, peripherals::SPI1, NoDma, NoDma>) {
 }
 
 
+// macro_rules! blink_pin {
+//     ($name:ident, $pin:ty) => {
+//         #[embassy_executor::task]
+//         async fn $name(mut pin: $pin) {
+//             let mut ticker = Ticker::every(Duration::from_millis(100));
+//             loop {
+//                 pin.set_high();
+//                 ticker.next().await;
+                
+//                 pin.set_low();
+//                 ticker.next().await;
+//             }
+//         }
+//     }
+// }
+
+
+
  #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
+
+    // blink_pin!(foo, Output<'static, peripherals::PB7>);
+    // unwrap!(spawner.spawn(foo(Output::new(p.PB7, Level::High, Speed::Low))));
 
     // Configure LED and button
     // let led = Output::new(p.PB0, Level::High, Speed::Low);   Actual LED
@@ -224,6 +245,8 @@ async fn main(spawner: Spawner) {
             )*
         }
     }
+
+
 
     {
         let mut val = BUTTON_BOARD_VEC.lock().await;
