@@ -48,13 +48,7 @@ mod adc_reader;
 use adc_reader::adc_reader;
 
 mod button_board;
-use button_board::{
-    button_board,
-    r1_listener,
-    r2_listener,
-    r3_listener,
-    r4_listener
-};
+use button_board::button_board;
 
 mod spi_full_duplex; 
 use spi_full_duplex::MySpi;
@@ -75,7 +69,8 @@ pub(crate) enum AdcPins {
     AmbientLx = 0,
 }
 
-pub(crate) static MAIN_CHANNEL: Channel<ThreadModeRawMutex, String<64>, 5> = Channel::new();
+pub(crate) static MAIN_CHANNEL: Channel<ThreadModeRawMutex, String<64>, 8> = Channel::new();
+pub(crate) static BTN_CH: Channel<ThreadModeRawMutex, Vec::<u8, 2>, 8> = Channel::new();
 
 
 #[embassy_executor::task]
@@ -169,7 +164,23 @@ async fn pulse_light(spi: MySpi<'static, peripherals::SPI1, NoDma, NoDma>) {
         }
     }
 }
+
+
+macro_rules! monitor_exti {
+    ($name:ident, $exti:ty) => {
+        #[embassy_executor::task]
+        pub(crate) async fn $name(pin_no: u8, mut exti: $exti) {
+            loop {
+                exti.wait_for_any_edge().await;
+                let mut val = Vec::<u8, 2>::new();
+                val.extend_from_slice(&[pin_no, exti.is_high() as u8]).unwrap();
+                BTN_CH.send(val).await;
+            }
+        }
+    }
+}
  
+
  #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
@@ -210,27 +221,28 @@ async fn main(spawner: Spawner) {
     let a6 = p.PA7;
     let a7 = p.PA2;
 
-    let r1 = ExtiInput::new(Input::new(p.PB1, Pull::Down), p.EXTI1);
-    let r2 = ExtiInput::new(Input::new(p.PC14, Pull::Down), p.EXTI14);
-    let r3 = ExtiInput::new(Input::new(p.PC15, Pull::Down), p.EXTI15);
-    let r4 = ExtiInput::new(Input::new(p.PA8, Pull::Down), p.EXTI8);
-
     {
         let mut val = BUTTON_BOARD_VEC.lock().await;
-        (*val).extend_from_slice(&[false, false, false, false]).unwrap();
+        val.extend_from_slice(
+            &[false, false, false, false]
+        ).unwrap();
     }
 
+    monitor_exti!(exti1, ExtiInput<'static, peripherals::PB1>);
+    monitor_exti!(exti9, ExtiInput<'static, peripherals::PA9>);
+    monitor_exti!(exti10, ExtiInput<'static, peripherals::PA10>);
+    monitor_exti!(exti8, ExtiInput<'static, peripherals::PA8>);
+
+    unwrap!(spawner.spawn(exti1(0, ExtiInput::new(Input::new(p.PB1, Pull::Down), p.EXTI1))));
+    unwrap!(spawner.spawn(exti9(1, ExtiInput::new(Input::new(p.PA9, Pull::Down), p.EXTI9))));
+    unwrap!(spawner.spawn(exti10(2, ExtiInput::new(Input::new(p.PA10, Pull::Down), p.EXTI10))));
+    unwrap!(spawner.spawn(exti8(3, ExtiInput::new(Input::new(p.PA8, Pull::Down), p.EXTI8))));
 
     unwrap!(spawner.spawn(pulse_light(spi)));
-    // unwrap!(spawner.spawn(led_button(led, butt, exti)));
     unwrap!(spawner.spawn(motor_button(mtr, button)));
     unwrap!(spawner.spawn(adc_reader(
         adc, a0, a1, a2, a3, a4, a5, a6, a7
     )));
-    unwrap!(spawner.spawn(r1_listener(0, r1)));
-    unwrap!(spawner.spawn(r2_listener(1, r2)));
-    unwrap!(spawner.spawn(r3_listener(2, r3)));
-    unwrap!(spawner.spawn(r4_listener(3, r4)));
     unwrap!(spawner.spawn(button_board()));
 
     loop {
